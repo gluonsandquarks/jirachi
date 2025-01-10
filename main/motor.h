@@ -5,7 +5,6 @@
 #define IN2_GPIO_PIN          GPIO_NUM_4
 #define PWM_FREQUENCY         250000U          /* 250 kHz */
 #define PWM_DUTY_RESOLUTION   LEDC_TIMER_8_BIT /* 8-bit resolution (0-255 duty cycle) */
-#define MAX_DUTY_CYCLE        255U
 
 #define LEDC_IN1_CHANNEL      LEDC_CHANNEL_0
 #define LEDC_IN2_CHANNEL      LEDC_CHANNEL_1

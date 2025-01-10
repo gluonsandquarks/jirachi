@@ -14,6 +14,5 @@ void madgwick_init(Madgwick *filter, float beta);
 void madgwick_update(Madgwick *filter, float gx, float gy, float gz, float ax, float ay, float az, float deltat);
 /* get roll, pitch and yaw in degrees */
 void madgwick_get_rpy(Madgwick *filter);
-void madgwick_get_rpy_old(Madgwick *filter);
 
 #endif /* _MADGWICK_H */

@@ -294,6 +294,7 @@ void imu_init(IMU *imu, uint8_t accel_scale, uint8_t gyro_scale, uint8_t accel_o
     imu->accel_resolution = 0.0F;
     imu->gyro_resolution = 0.0F;
 
+    set_register(ICM42688_REG_BANK_SEL, 0x00); /* go to register bank 0 */
     set_register(ICM42688_DEVICE_CONFIG, 0x01); /* set bit 0 to 1 to issue soft reset */
     vTaskDelay(1U / portTICK_PERIOD_MS); /* wait for registers to reset */
 
@@ -310,6 +311,7 @@ void imu_init(IMU *imu, uint8_t accel_scale, uint8_t gyro_scale, uint8_t accel_o
     set_register(ICM42688_ACCEL_CONFIG0, accel_scale << 5U | accel_odr); /* set accel Full Scale (FS) and Output Data Rate (ODR) */
     set_register(ICM42688_GYRO_CONFIG0, gyro_scale << 5U | gyro_odr); /* set gyro FS and ODR */
     set_register(ICM42688_GYRO_ACCEL_CONFIG0, 0x44); /* set accel and gyro bandwith to ODR/10 */
+    vTaskDelay(100U / portTICK_PERIOD_MS); /* wait for registers to stabilize */
 
     /* configure interrupt handling */
     set_register(ICM42688_INT_CONFIG, 0x18 | 0x03); /* push-pull, pulsed, active HIGH interrupts */

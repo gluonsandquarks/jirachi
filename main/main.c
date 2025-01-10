@@ -14,17 +14,19 @@
 
 #define COLOR_SEQUENCE_SIZE      3U
 #define PI                       (3.14159265358979F)
-#define GYRO_MEASURE_ERROR       (PI * (40.0F / 180.0F))     /* this really should be measured, but estimated to 40deg/s -> omega_b on the original white paper */
+#define GYRO_MEASURE_ERROR       (PI * (40.0F / 180.0F))    /* this really should be measured, but estimated to 40deg/s -> omega_b on the original white paper */
                                                             /* technically this should be done by getting the mean bias of the gyro on every axis */
-#define GRYE_DPS_TO_RPS(x, y, z) ((x + y + z) / 3.0F * PI / 180.0F) /* get mean error and convert to radians per second the gyro bias */
 #define BETA(x)                  (sqrtf(3.0F / 4.0F) * (x)) /* compute beta for madgwick filter >w<!! */
 
-#define DESIRED_ANGLE            (65.0F)
-#define PID_KP                   (50.0F)
+#define DESIRED_ANGLE            (-60.0F)
+#define PID_KP                   (150.0F)
 #define PID_KD                   (0.0F)
 #define PID_KI                   (0.0F)
+#define MAX_DUTY_CYCLE           (255U) /* full power!!!! :P */
 
-bool imu_data_ready = false;
+volatile bool imu_data_ready = false;
+volatile bool control_active = true;
+
 static void IRAM_ATTR imu_isr_handler()
 {
     gpio_intr_disable(IMU_INT1);
@@ -76,7 +78,6 @@ void app_main(void)
     ESP_LOGI("main", "KEEP DEVICE FLAT AND STABLE RELATIVE TO ONE AXIS ONLY");
     vTaskDelay(1000U / portTICK_PERIOD_MS);
     imu_calculate_bias(&imu);
-    // madgwick_init(&filter, BETA(GRYE_DPS_TO_RPS(imu.gxbias, imu.gybias, imu.gzbias)));
     madgwick_init(&filter, BETA(GYRO_MEASURE_ERROR));
 
     /* configure IMU_INT1 pin for data ready interrupts coming from imu */
@@ -98,36 +99,35 @@ void app_main(void)
         {
             imu_data_ready = false;
             imu_read(&imu); /* INT1 cleared on any read BTW :p */
-            for (uint8_t i = 0; i < 20; i++) /* iterate a fixed number of times */
-            {
-                now = esp_timer_get_time();
-                deltat = (float)(now - filter.last_update) * 1000000.0F; /* calculate deltat and convert from us to s */
-                filter.last_update = now;
-                madgwick_update(&filter, (imu.gy*PI/180.0F), (imu.gx*PI/180.0F), -(imu.gz*PI/180.0F), imu.ay, imu.ax, -imu.az, deltat);
-            }
+            now = esp_timer_get_time();
+            deltat = ((float)(now - filter.last_update)) / 1000000.0F; /* calculate deltat and convert from us to s */
+            filter.last_update = now;
+            /* inputs flipped and fixed signs given the actual orientation of the imu on the board */
+            madgwick_update(&filter, (imu.gy*PI/180.0F), (imu.gx*PI/180.0F), -(imu.gz*PI/180.0F), imu.ay, imu.ax, -imu.az, deltat);
         }
         madgwick_get_rpy(&filter);
-        // ESP_LOGI("main", "Y: %03.2f,\tP: %03.2f,\tR: %03.2f", filter.yaw, filter.pitch, filter.roll);
-        // ESP_LOGI("main", "AX: %03.2f,\tAY: %03.2f,\tAZ: %03.2f", imu.ax, imu.ay, imu.az);
-        // ESP_LOGI("main", "GX: %03.2f,\tGY: %03.2f,\tGZ: %03.2f", imu.gx, imu.gy, imu.gz);
+        ESP_LOGD("main", "R: %03.2f,\tP: %03.2f,\tY: %03.2f", filter.roll, filter.pitch, filter.yaw);
 
         /* controller */
-        /* pid control to make pitch = ~65 degrees */
-        now = esp_timer_get_time();
-        deltat = (float)(now - controller.last_update) * 1000000.0F;
-        controller.last_update = now;
-        control_signal = pid_compute(&controller, DESIRED_ANGLE, filter.pitch, deltat);
-        ESP_LOGI("main", "control_signal = %f", control_signal);
+        /* pid control to make pitch = ~-60 degrees */
+        if (control_active)
+        {
+            now = esp_timer_get_time();
+            deltat = ((float)(now - controller.last_update)) / 1000000.0F;
+            controller.last_update = now;
+            control_signal = pid_compute(&controller, DESIRED_ANGLE, filter.pitch, deltat);
+            ESP_LOGI("main", "control_signal = %f", control_signal);
 
-        if (control_signal > 0.0F)
-        {
-            duty_cycle = (uint8_t)(control_signal > (float)MAX_DUTY_CYCLE ? MAX_DUTY_CYCLE : control_signal);
-            set_motor_pwm(0U, duty_cycle);
-        }
-        else
-        {
-            duty_cycle = (uint8_t)(-control_signal > (float)MAX_DUTY_CYCLE ? MAX_DUTY_CYCLE : -control_signal);
-            set_motor_pwm(duty_cycle, 0U);
+            if (control_signal > 0.0F)
+            {
+                duty_cycle = (uint8_t)(control_signal > (float)MAX_DUTY_CYCLE ? MAX_DUTY_CYCLE : control_signal);
+                set_motor_pwm(duty_cycle, 0U);
+            }
+            else
+            {
+                duty_cycle = (uint8_t)(-control_signal > (float)MAX_DUTY_CYCLE ? MAX_DUTY_CYCLE : -control_signal);
+                set_motor_pwm(0U, duty_cycle);
+            }
         }
 
         

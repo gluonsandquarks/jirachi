@@ -44,7 +44,6 @@ void madgwick_update(Madgwick *filter, float gx, float gy, float gz, float ax, f
     float two_q1  = 2.0F * filter->q1;
     float two_q2  = 2.0F * filter->q2;
     float two_q3  = 2.0F * filter->q3;
-    float two_q4  = 2.0F * filter->q4;
 
     /* normalize the accelerometer measurement */
     norm = sqrtf(ax * ax + ay * ay + az * az);
@@ -57,7 +56,7 @@ void madgwick_update(Madgwick *filter, float gx, float gy, float gz, float ax, f
     f_2 = two_q1 * filter->q2 + two_q3 * filter->q4 - ay;
     f_3 = 1.0F - two_q2 * filter->q2 - two_q3 * filter->q3 - az;
     J_11or24 = two_q3;
-    J_12or23 = two_q4;
+    J_12or23 = 2.0F * filter->q4;
     J_13or22 = two_q1;
     J_14or21 = two_q2;
     J_32 = 2.0F * J_14or21;
@@ -94,13 +93,6 @@ void madgwick_update(Madgwick *filter, float gx, float gy, float gz, float ax, f
     filter->q2 /= norm;
     filter->q3 /= norm;
     filter->q4 /= norm;
-}
-
-void madgwick_get_rpy_old(Madgwick *filter)
-{
-    filter->roll = atan2f(2.0F * (filter->q1 * filter->q2 + filter->q3 * filter->q4), 1.0F - 2.0F * (filter->q2 * filter->q2 + filter->q3 * filter->q3)) * 180.0F / 3.14159265358979F;
-    filter->pitch = asinf(2.0F * (filter->q1 * filter->q3 - filter->q4 * filter->q2)) * 180.0F / 3.14159265358979F;
-    filter->yaw = atan2f(2.0F * (filter->q1 * filter->q4 + filter->q2 * filter->q3), 1.0F - 2.0F * (filter->q3 * filter->q3 + filter->q4 * filter->q4)) * 180.0F / 3.14159265358979F;
 }
 
 
