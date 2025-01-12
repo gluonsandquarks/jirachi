@@ -1,5 +1,3 @@
-#include <stdint.h>
-#include <stddef.h>
 #include "driver/ledc.h"
 #include "esp_log.h"
 #include "motor.h"

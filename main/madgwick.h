@@ -1,5 +1,6 @@
 #ifndef _MADGWICK_H
 #define _MADGWICK_H
+#include <stdint.h>
 
 
 typedef struct {

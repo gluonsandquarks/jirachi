@@ -1,5 +1,6 @@
 #ifndef _RGB_H
 #define _RGB_H
+#include <stdint.h>
 
 #define RMT_TX_CHANNEL    RMT_CHANNEL_0
 #define LED_GPIO_PIN      GPIO_NUM_7

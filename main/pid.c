@@ -1,4 +1,3 @@
-#include <stdint.h>
 #include "pid.h"
 
 void pid_init(PID *controller, float kp, float kd, float ki)
@@ -9,6 +8,13 @@ void pid_init(PID *controller, float kp, float kd, float ki)
     controller->ki = ki;
     controller->last_update = 0;
     controller->prev_err = 0.0F;
+}
+
+void pid_update_consts(PID *controller, float kp, float kd, float ki)
+{
+    controller->kp = kp;
+    controller->kd = kd;
+    controller->ki = ki;
 }
 
 float pid_compute(PID *controller, float set_point, float measured, float deltat)

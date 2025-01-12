@@ -6,11 +6,13 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include "globals.h"
 #include "rgb.h"
 #include "motor.h"
 #include "imu.h"
 #include "madgwick.h"
 #include "pid.h"
+#include "ble.h"
 
 #define COLOR_SEQUENCE_SIZE      3U
 #define PI                       (3.14159265358979F)
@@ -19,13 +21,16 @@
 #define BETA(x)                  (sqrtf(3.0F / 4.0F) * (x)) /* compute beta for madgwick filter >w<!! */
 
 #define DESIRED_ANGLE            (-60.0F)
-#define PID_KP                   (150.0F)
-#define PID_KD                   (0.0F)
-#define PID_KI                   (0.0F)
-#define MAX_DUTY_CYCLE           (255U) /* full power!!!! :P */
+#define DEFAULT_PID_KP           (3500.0F)
+#define DEFAULT_PID_KD           (63.0F)
+#define DEFAULT_PID_KI           (10.0F)
+#define MAX_DUTY_CYCLE           (200U) /* full power!!!! :P */
 
 volatile bool imu_data_ready = false;
-volatile bool control_active = true;
+volatile bool control_active = false;
+volatile float pid_kp = DEFAULT_PID_KP;
+volatile float pid_kd = DEFAULT_PID_KD;
+volatile float pid_ki = DEFAULT_PID_KI;
 
 static void IRAM_ATTR imu_isr_handler()
 {
@@ -38,6 +43,9 @@ static void IRAM_ATTR imu_isr_handler()
 
 void app_main(void)
 {
+
+    xTaskCreate(ble_task, "ble_task", 4096, NULL, 1, NULL); /* start BLE task */
+
     /* set up color sequences for rgb led */
     RGB setup_state = { .hex = SUNSET_ORANGE };
     RGB control_sequence[COLOR_SEQUENCE_SIZE] = { { .hex = HOT_PINK },  { .hex = SORA_BLUE  }, { .hex = KUROMI_PURPLE } };
@@ -51,7 +59,7 @@ void app_main(void)
     int64_t now = 0.0F;
     uint8_t duty_cycle = 0U;
 
-    pid_init(&controller, PID_KP, PID_KD, PID_KI);
+    pid_init(&controller, pid_kp, pid_kd, pid_ki);
 
     /* initialize peripherals */
     init_rmt();
@@ -112,11 +120,12 @@ void app_main(void)
         /* pid control to make pitch = ~-60 degrees */
         if (control_active)
         {
+            pid_update_consts(&controller, pid_kp, pid_kd, pid_ki); /* update constants from the BLE service */
             now = esp_timer_get_time();
             deltat = ((float)(now - controller.last_update)) / 1000000.0F;
             controller.last_update = now;
             control_signal = pid_compute(&controller, DESIRED_ANGLE, filter.pitch, deltat);
-            ESP_LOGI("main", "control_signal = %f", control_signal);
+            ESP_LOGD("main", "control_signal = %f", control_signal);
 
             if (control_signal > 0.0F)
             {
@@ -128,7 +137,7 @@ void app_main(void)
                 duty_cycle = (uint8_t)(-control_signal > (float)MAX_DUTY_CYCLE ? MAX_DUTY_CYCLE : -control_signal);
                 set_motor_pwm(0U, duty_cycle);
             }
-        }
+        } else { set_motor_pwm(0U, 0U); }
 
         
         morph_tick(&morph);

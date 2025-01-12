@@ -1,5 +1,3 @@
-#include <stdint.h>
-#include <stddef.h>
 #include "driver/rmt.h"
 #include "esp_timer.h"
 #include "esp_log.h"

@@ -1,6 +1,9 @@
 #ifndef _IMU_H
 #define _IMU_H
 
+#include <stdint.h>
+#include <stdbool.h>
+
 #define I2C_PORT_NUM                       0
 #define I2C_MASTER_SCL_IO                  0                /* GPIO_NUM_0 */
 #define I2C_MASTER_SDA_IO                  1                /* GPIO_NUM_1 */

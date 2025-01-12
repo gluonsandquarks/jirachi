@@ -1,5 +1,3 @@
-#include <stdint.h>
-#include <stdbool.h>
 #include <math.h>
 #include "driver/i2c.h"
 #include "esp_log.h"

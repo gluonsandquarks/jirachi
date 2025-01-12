@@ -1,5 +1,6 @@
 #ifndef _MOTOR_H
 #define _MOTOR_H
+#include <stdint.h>
 
 #define IN1_GPIO_PIN          GPIO_NUM_3
 #define IN2_GPIO_PIN          GPIO_NUM_4
