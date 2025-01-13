@@ -1,3 +1,34 @@
+/*
+ * This file is part of the jirachi repository, https://github.com/gluonsandquarks/jirachi
+ * ble.c - configuration of BLE functionality through the NimBLE stack, custom callback
+ * functions to handle data read/write, data parser, setup of the GATT service and
+ * characteristics, bluetooth event handler, etc. This shit is not secure in any way
+ * other than the security provided by the NimBLE stack, everyone can connect and send
+ * data to the device, please don't use in safety-critical environments lol
+ * 
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2025 gluons.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #include <stdio.h>
 #include <ctype.h>
 #include "freertos/FreeRTOS.h"
@@ -15,9 +46,55 @@
 #include "globals.h"
 #include "ble.h"
 
+/* TODO: the read and write operations of the PID constants variables aren't technically thread safe */
+/*       they need a mutex but i'm lazy and since this thread only read/writes while the other just  */
+/*       reads (and multiple times), it is ok so whatever :PPP also im too lazy rn to do that        */
+
 static uint8_t ble_addr_type;
 
 void ble_app_advertise(void); /* forward declare this function cause api is shit >:) */
+
+static uint8_t parse_rx_data(char *raw_data, char *parsed_data)
+{
+    uint8_t pkt_delim = 0U;
+
+    /* check for packet delimeter */
+    for (int i = 0U; i < SIZEOF_RDATA; i++)
+    {
+        if (raw_data[i] == PKT_DELIMETER)
+        {
+            pkt_delim = 1U;
+            break;
+        }
+        else
+        {
+            parsed_data[i] = raw_data[i];
+        }
+    }
+
+    ESP_LOGD("parse_rx_data", "parsed_data = %s, pkt_delim = %d", parsed_data, pkt_delim);
+
+    if (!pkt_delim)
+    {
+        ESP_LOGD("parse_rx_data", "pkt_delim = 0");
+        return 0U;
+    }
+
+    /* check for empty string and non digits */
+    /* TODO: need to implement decimal point handling */
+    for (uint8_t i = 0U; i < SIZEOF_RDATA; i++)
+    {
+        if (i == 0U && parsed_data[i] == '\0') { return 0U; } /* return if string is empty */
+        if (parsed_data[i] == '\0') { break; }
+        if (!(parsed_data[i] >= '0' && parsed_data[i] <= '9'))
+        {
+            ESP_LOGI("parse_rx_data", "parsed_data contains non-digit chars");
+            return 0U;
+        }
+    }
+
+    return 1U;
+}
 
 /* callback functions for BLE characteristics  */
 static int toggle_control(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
@@ -25,7 +102,8 @@ static int toggle_control(uint16_t conn_handle, uint16_t attr_handle, struct ble
     char *data = (char *)ctxt->om->om_data;
     char *on = "1";
     char *off = "0";
-    /* just ignore other other messages lmao */
+
+    /* just ignore other messages lmao */
     if (strncmp(data, on, 1) == 0) { control_active = 1; return 0; }
     if (strncmp(data, off, 1) == 0) { control_active = 0; return 0; }
 
@@ -34,8 +112,8 @@ static int toggle_control(uint16_t conn_handle, uint16_t attr_handle, struct ble
 
 static int read_kp(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    char buffer[20] = { 0 };
-    snprintf(buffer, 20, "%.4f", pid_kp);
+    char buffer[SIZEOF_RDATA] = { 0 };
+    snprintf(buffer, SIZEOF_RDATA, "%.2f", pid_kp);
     os_mbuf_append(ctxt->om, buffer, strlen(buffer));
     return 0;
 }
@@ -44,42 +122,48 @@ static int update_kp(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_
 {
     char *data = (char *)ctxt->om->om_data;
     char parsed_data[SIZEOF_RDATA] = { 0 };
-    uint8_t pkt_delim = 0;
 
-    for (int i = 0; i < SIZEOF_RDATA; i++)
-    {
-        if (data[i] == PKT_DELIMETER)
-        {
-            pkt_delim = 1;
-            break;
-        }
-        else
-        {
-            parsed_data[i] = data[i];
-        }
-    }
+    if (!parse_rx_data(data, parsed_data)) { return 0; } /* don't update value if we don't recieve sensible data */
+    pid_kp = strtof((char *)parsed_data, NULL); /* update variable */
 
-    ESP_LOGI("update_kp", "parsed_data = %s, pkt_delim = %d", parsed_data, pkt_delim);
+    return 0;
+}
 
-    if (!pkt_delim)
-    {
-        ESP_LOGI("update_kp", "pkt_delim = 0");
-        return 0;
-    }
+static int read_kd(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    char buffer[SIZEOF_RDATA] = { 0 };
+    snprintf(buffer, SIZEOF_RDATA, "%.2f", pid_kd);
+    os_mbuf_append(ctxt->om, buffer, strlen(buffer));
+    return 0;
+}
 
-    for (int i = 0; i < SIZEOF_RDATA; i++)
-    {
-        if (i == 0 && parsed_data[i] == '\0') { return 0; }
-        if (parsed_data[i] == '\0') { break; }
-        if (!(parsed_data[i] >= '0' && parsed_data[i] <= '9'))
-        {
-            ESP_LOGI("update_kp", "parsed_data contains non-digit chars");
-            return 0;
-        }
-    }
+static int update_kd(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    char *data = (char *)ctxt->om->om_data;
+    char parsed_data[SIZEOF_RDATA] = { 0 };
 
-    pid_kp = strtof((char *)parsed_data, NULL);
-    printf("pid_kp = %.2f\n", pid_kp);
+    if (!parse_rx_data(data, parsed_data)) { return 0; } /* don't update value if we don't recieve sensible data */
+    pid_kd = strtof((char *)parsed_data, NULL); /* update variable */
+
+    return 0;
+}
+
+static int read_ki(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    char buffer[SIZEOF_RDATA] = { 0 };
+    snprintf(buffer, SIZEOF_RDATA, "%.2f", pid_ki);
+    os_mbuf_append(ctxt->om, buffer, strlen(buffer));
+    return 0;
+}
+
+static int update_ki(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    char *data = (char *)ctxt->om->om_data;
+    char parsed_data[SIZEOF_RDATA] = { 0 };
+
+    if (!parse_rx_data(data, parsed_data)) { return 0; } /* don't update value if we don't recieve sensible data */
+    pid_ki = strtof((char *)parsed_data, NULL); /* update variable */
+
     return 0;
 }
 
@@ -98,6 +182,18 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
          {.uuid = BLE_UUID16_DECLARE(WRIT_KP_UUID),
           .flags = BLE_GATT_CHR_F_WRITE,
           .access_cb = update_kp},
+         {.uuid = BLE_UUID16_DECLARE(READ_KD_UUID),
+          .flags = BLE_GATT_CHR_F_READ,
+          .access_cb = read_kd},
+         {.uuid = BLE_UUID16_DECLARE(WRIT_KD_UUID),
+          .flags = BLE_GATT_CHR_F_WRITE,
+          .access_cb = update_kd},
+         {.uuid = BLE_UUID16_DECLARE(READ_KI_UUID),
+          .flags = BLE_GATT_CHR_F_READ,
+          .access_cb = read_ki},
+         {.uuid = BLE_UUID16_DECLARE(WRIT_KI_UUID),
+          .flags = BLE_GATT_CHR_F_WRITE,
+          .access_cb = update_ki},
          {0}}},
     {0}};
 
@@ -165,15 +261,14 @@ static void host_task(void *param)
 
 void ble_task(void)
 {
-    nvs_flash_init();                          // 1 - Initialize NVS flash using
-    // esp_nimble_hci_and_controller_init();      // 2 - Initialize ESP controller
-    nimble_port_init();                        // 3 - Initialize the host stack
-    ble_svc_gap_device_name_set("BLE-Server"); // 4 - Initialize NimBLE configuration - server name
-    ble_svc_gap_init();                        // 4 - Initialize NimBLE configuration - gap service
-    ble_svc_gatt_init();                       // 4 - Initialize NimBLE configuration - gatt service
-    ble_gatts_count_cfg(gatt_svcs);            // 4 - Initialize NimBLE configuration - config gatt services
-    ble_gatts_add_svcs(gatt_svcs);             // 4 - Initialize NimBLE configuration - queues gatt services.
-    ble_hs_cfg.sync_cb = ble_app_on_sync;      // 5 - Initialize application
-    nimble_port_freertos_init(host_task);      // 6 - Run the thread
+    nvs_flash_init();                          /* init non volatile memory*/
+    nimble_port_init();                        /* init nimble stack in server mode */
+    ble_svc_gap_device_name_set("BLE-Server"); /* config server name */
+    ble_svc_gap_init();                        /* config gap service */
+    ble_svc_gatt_init();                       /* config gatt service */
+    ble_gatts_count_cfg(gatt_svcs);            /* config gatt services */
+    ble_gatts_add_svcs(gatt_svcs);             /* queues gatt services */
+    ble_hs_cfg.sync_cb = ble_app_on_sync;      /* point to init function */
+    nimble_port_freertos_init(host_task);      /* run the host_task */
     vTaskDelete(NULL);
 }

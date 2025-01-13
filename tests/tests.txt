@@ -1,0 +1,4 @@
+lol too lazy to implement tests rn
+this is a personal project so whatever plus i don't want to go over setting up stubs and what not :P
+might do this in the future to complete the dev/deployment lifecycle as a whole 
+TODO maybe?? idk

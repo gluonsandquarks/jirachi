@@ -1,3 +1,33 @@
+/*
+ * This file is part of the jirachi repository, https://github.com/gluonsandquarks/jirachi
+ * rgb.c - exposes API to control a addressable RGB LED. Note that this functionality is
+ * tailored specifically to the SK6805-EC15 RGB LED, and only one of them, so there's no
+ * functionality to handle daisy-chained LEDs (although it should be fairly easy to
+ * implement
+ * 
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2025 gluons.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #include "driver/rmt.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -100,9 +130,9 @@ void set_led_rgb(RGB rgb)
 
 uint8_t morph_set_sequence(Morph *morph, RGB *rgb_list, uint8_t rgb_list_size, int64_t morph_step_time_us)
 {
-    if (rgb_list == NULL)   { ESP_LOGE("set_morph_sequence", "RGB List is NULL"); return 1; }
-    if (morph == NULL)      { ESP_LOGE("set_morph_sequence", "Morph obj is NULL"); return 1; }
-    if (rgb_list_size <= 0U) { ESP_LOGE("set_morph_sequence", "RGB size is <= 0"); return 1; }
+    if (rgb_list == NULL)   { ESP_LOGE("set_morph_sequence", "RGB List is NULL"); return 1U; }
+    if (morph == NULL)      { ESP_LOGE("set_morph_sequence", "Morph obj is NULL"); return 1U; }
+    if (rgb_list_size <= 0U) { ESP_LOGE("set_morph_sequence", "RGB size is <= 0"); return 1U; }
 
     if (morph_step_time_us < 0) { morph_step_time_us = 0U; }
 
@@ -114,7 +144,7 @@ uint8_t morph_set_sequence(Morph *morph, RGB *rgb_list, uint8_t rgb_list_size, i
     morph->morph_step = morph_step_time_us; /* convert step time to us */
     morph->last_tick = esp_timer_get_time();
 
-    return 0;
+    return 0U;
 }
 
 void morph_tick(Morph *morph)
@@ -125,7 +155,7 @@ void morph_tick(Morph *morph)
         if (morph->current_color.hex == morph->target_color.hex)
         {
             morph->list_index++;
-            if (morph->list_index >= morph->list_size) { morph->list_index = 0; } /* wrap index back to the start */
+            if (morph->list_index >= morph->list_size) { morph->list_index = 0U; } /* wrap index back to the start */
             morph->target_color = *(morph->color_list + morph->list_index); /* get current target color from rgb list */
         }
         else
