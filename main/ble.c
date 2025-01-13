@@ -261,14 +261,14 @@ static void host_task(void *param)
 
 void ble_task(void)
 {
-    nvs_flash_init();                          /* init non volatile memory*/
-    nimble_port_init();                        /* init nimble stack in server mode */
-    ble_svc_gap_device_name_set("BLE-Server"); /* config server name */
-    ble_svc_gap_init();                        /* config gap service */
-    ble_svc_gatt_init();                       /* config gatt service */
-    ble_gatts_count_cfg(gatt_svcs);            /* config gatt services */
-    ble_gatts_add_svcs(gatt_svcs);             /* queues gatt services */
-    ble_hs_cfg.sync_cb = ble_app_on_sync;      /* point to init function */
-    nimble_port_freertos_init(host_task);      /* run the host_task */
+    nvs_flash_init();                                  /* init non volatile memory*/
+    nimble_port_init();                                /* init nimble stack in server mode */
+    ble_svc_gap_device_name_set("Jirachi .:. gluons"); /* config server name */
+    ble_svc_gap_init();                                /* config gap service */
+    ble_svc_gatt_init();                               /* config gatt service */
+    ble_gatts_count_cfg(gatt_svcs);                    /* config gatt services */
+    ble_gatts_add_svcs(gatt_svcs);                     /* queues gatt services */
+    ble_hs_cfg.sync_cb = ble_app_on_sync;              /* point to init function */
+    nimble_port_freertos_init(host_task);              /* run the host_task */
     vTaskDelete(NULL);
 }

@@ -75,7 +75,7 @@ void app_main(void)
 
     /* sadly esp32c3 is single core so we need to do this in a different thread rather than a different core */
     /* might have some impact on active control?? need to stress test the app i guess */
-    xTaskCreate(ble_task, "ble_task", 4096, NULL, 1, NULL); /* start BLE task */
+    xTaskCreate((TaskFunction_t)ble_task, "ble_task", 4096, NULL, 1, NULL); /* start BLE task */
 
     /* set up color sequences for rgb led */
     RGB setup_state = { .hex = SUNSET_ORANGE };
