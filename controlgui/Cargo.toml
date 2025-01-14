@@ -1,0 +1,8 @@
+[package]
+name = "controlgui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+btleplug = "0.11.7"
+iced = "0.13.1"
