@@ -205,24 +205,35 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
     /* advertise if connected */
     case BLE_GAP_EVENT_CONNECT:
         ESP_LOGD("ble_gap_event", "BLE GAP EVENT CONNECT %s", event->connect.status == 0 ? "OK!" : "FAILED!");
-        if (event->connect.status != 0)
-        {
-            ble_app_advertise();
-        }
+        if (event->connect.status != 0) { ble_app_advertise(); }
         break;
     /* advertise again after completion of the event */
     case BLE_GAP_EVENT_DISCONNECT:
-        ESP_LOGD("ble_gap_event", "BLE GAP EVENT DISCONNECTED");
+        ESP_LOGD("ble_gap_event", "BLE GAP EVENT DISCONNECTED. Reason: %d", event->disconnect.reason);
         ble_app_advertise();
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
         ESP_LOGD("ble_gap_event", "BLE GAP EVENT");
         ble_app_advertise();
         break;
+    case BLE_GAP_EVENT_PASSKEY_ACTION:
+        ESP_LOGD("ble_gap_event", "Passkey action requested, action = %d", event->passkey.params.action);
+        /* handle passkey actions (e.g. display, input) */
+        ble_sm_inject_io(event->passkey.conn_handle, 0); /* provide passkey if applicable */
+        break;
     default:
+        ESP_LOGD("ble_gap_event", "Unhandled event: %d", event->type);
         break;
     }
     return 0;
+}
+
+static void ble_config_security(void)
+{
+    ble_hs_cfg.sm_bonding = 1; /* enable bonding */
+    ble_hs_cfg.sm_mitm = 1; /* require MITM protection (man-in-the-middle) */
+    ble_hs_cfg.sm_sc = 1; /* enable secure connections (LE Secure Connections) */
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO; /* config io capabilities */
 }
 
 /* define the BLE connection */
@@ -236,14 +247,21 @@ void ble_app_advertise(void)
     fields.name = (uint8_t *)device_name;
     fields.name_len = strlen(device_name);
     fields.name_is_complete = 1;
-    ble_gap_adv_set_fields(&fields);
+    fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP; /* general discoverable, no EB/EDR (classic bluetooth) */
+    uint16_t service_uuid = SERV_UUID;
+    fields.uuids16 = (ble_uuid16_t *)&service_uuid;
+    fields.num_uuids16 = 1;
+    fields.uuids16_is_complete = 1;
+    int rc = ble_gap_adv_set_fields(&fields);
+    if (rc != 0) { ESP_LOGE("ble_app_advertise", "Failed to set advertissement fields, rc = %d", rc); }
 
     /* GAP - device connectivity definition */
     struct ble_gap_adv_params adv_params;
     memset(&adv_params, 0, sizeof(adv_params));
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND; /* connectable or non-connectable */
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN; /* discoverable or non-discoverable */
-    ble_gap_adv_start(ble_addr_type, NULL, BLE_HS_FOREVER, &adv_params, ble_gap_event, NULL);
+    rc = ble_gap_adv_start(ble_addr_type, NULL, BLE_HS_FOREVER, &adv_params, ble_gap_event, NULL);
+    if (rc != 0) { ESP_LOGE("ble_app_advertise", "Failed to start advertising, rc = %d", rc); }
 }
 
 /* the application */
@@ -264,6 +282,7 @@ void ble_task(void)
     nvs_flash_init();                                  /* init non volatile memory*/
     nimble_port_init();                                /* init nimble stack in server mode */
     ble_svc_gap_device_name_set("Jirachi .:. gluons"); /* config server name */
+    ble_config_security();
     ble_svc_gap_init();                                /* config gap service */
     ble_svc_gatt_init();                               /* config gatt service */
     ble_gatts_count_cfg(gatt_svcs);                    /* config gatt services */
