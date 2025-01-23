@@ -1,6 +1,8 @@
-use iced::widget::{ button, column, pick_list, text, center, slider, container, row, horizontal_space, vertical_space };
+use iced::widget::{ button, column, pick_list, text, center, slider, text_input, row, horizontal_space, vertical_space };
 use iced::widget::{ Column, Row };
 use iced::{ Element, Theme, Fill, Color };
+
+const MAX_K_VALUES: f32 = 5000.0;
 
 pub fn main() -> iced::Result {
     iced::application(State::title, State::update, State::view)
@@ -21,6 +23,9 @@ struct State {
     theme: Theme,
     device_list: Vec<String>,
     selected_device: Option<String>,
+    kp: f32,
+    kd: f32,
+    ki: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -28,8 +33,15 @@ enum Message {
     ThemeChange(Theme),
     ScanDevices,
     SelectDevice(String),
+    ConnectionSuccess,
     ErrorConnecting,
     ResetApplication,
+    KpSliderChanged(f32),
+    KpInputBoxChanged(String),
+    KdSliderChanged(f32),
+    KdInputBoxChanged(String),
+    KiSliderChanged(f32),
+    KiInputBoxChanged(String),
 }
 
 impl State {
@@ -38,14 +50,39 @@ impl State {
             Message::ThemeChange(theme) => { self.theme = theme; },
             Message::ScanDevices => { self.device_list.push("new device".to_string()); },
             Message::SelectDevice(device) => { self.selected_device = Some(device); self.screen = Screen::LoadingScreen; },
-            Message::ErrorConnecting => { self.screen = Screen::ErrorScreen; }
+            Message::ConnectionSuccess => { self.screen = Screen::ControlScreen; },
+            Message::ErrorConnecting => { self.screen = Screen::ErrorScreen; },
             Message::ResetApplication => {
                 self.device_list.clear();
                 self.device_list.resize(0, "".to_string());
                 self.selected_device = None;
                 self.screen = Screen::InitScreen;
+                self.kp = 0.0;
+                self.kd = 0.0;
+                self.ki = 0.0;
+            },
+            Message::KpSliderChanged(new_kp) => { self.kp = new_kp; }
+            Message::KpInputBoxChanged(new_kp) => {
+                let mut kp_float = new_kp.parse().unwrap_or(0.0);
+                if kp_float > MAX_K_VALUES { kp_float = MAX_K_VALUES; }
+                if kp_float < 0.0 { kp_float = 0.0; }
+                self.kp = kp_float;
             }
-            _ => { }
+            Message::KdSliderChanged(new_kd) => { self.kd = new_kd; }
+            Message::KdInputBoxChanged(new_kd) => {
+                let mut kd_float = new_kd.parse().unwrap_or(0.0);
+                if kd_float > MAX_K_VALUES { kd_float = MAX_K_VALUES; }
+                if kd_float < 0.0 { kd_float = 0.0; }
+                self.kd = kd_float;
+            }
+            Message::KiSliderChanged(new_ki) => { self.ki = new_ki; }
+            Message::KiInputBoxChanged(new_ki) => {
+                let mut ki_float = new_ki.parse().unwrap_or(0.0);
+                if ki_float > MAX_K_VALUES { ki_float = MAX_K_VALUES; }
+                if ki_float < 0.0 { ki_float = 0.0; }
+                self.ki = ki_float;
+            }
+            _ => {}
         }
     }
 
@@ -91,13 +128,24 @@ impl State {
             .push("Connecting to device: ")
             .push(text(device.unwrap_or("".to_string())))
             .push(vertical_space())
-            .push(button("die").on_press(Message::ErrorConnecting)) /* TODO: need to get this message from a failed BLE connection */
+            .push(row![button("Die").on_press(Message::ErrorConnecting), horizontal_space(), button("Go!").on_press(Message::ConnectionSuccess)]) /* TODO: need to get this message from a failed BLE connection */
             .push(Self::footer(self))
             .push(Self::madeby("github.com/gluonsandquarks"))
     }
 
     fn control_screen(&self) -> Column<Message> {
+        let kp_str = self.kp.to_string();
+        let kd_str = self.kd.to_string();
+        let ki_str = self.ki.to_string();
         Self::container("Jirachi - PID Controller")
+            .push(row![text("Kp = ").size(20), text_input("Input value for Kp", &kp_str).on_input(Message::KpInputBoxChanged).size(20)])
+            .push(slider(0.0..=MAX_K_VALUES, self.kp, Message::KpSliderChanged))
+            .push(row![text("Kd = ").size(20), text_input("Input value for Kd", &kd_str).on_input(Message::KdInputBoxChanged).size(20)])
+            .push(slider(0.0..=MAX_K_VALUES, self.kd, Message::KdSliderChanged))
+            .push(row![text("Ki = ").size(20), text_input("Input value for Ki", &ki_str).on_input(Message::KiInputBoxChanged).size(20)])
+            .push(slider(0.0..=MAX_K_VALUES, self.ki, Message::KiSliderChanged))
+            .push(button("Fetch values from device").width(Fill))
+            .push(button("Upload values to device").width(Fill))
             .push(vertical_space())
             .push(row![button("Reset").on_press(Message::ResetApplication)].push(Self::footer(self)))
             .push(Self::madeby("github.com/gluonsandquarks"))
@@ -143,6 +191,9 @@ impl Default for State {
             theme: Theme::Dark,
             device_list: Vec::<String>::new(),
             selected_device: None,
+            kp: 0.0,
+            kd: 0.0,
+            ki: 0.0,
         }
     }
 }
