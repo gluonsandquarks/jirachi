@@ -12,6 +12,7 @@ enum Screen {
     InitScreen,
     LoadingScreen,
     ControlScreen,
+    ErrorScreen,
 }
 
 struct State {
@@ -27,6 +28,7 @@ enum Message {
     ThemeChange(Theme),
     ScanDevices,
     SelectDevice(String),
+    ErrorConnecting,
     ResetApplication,
 }
 
@@ -36,7 +38,13 @@ impl State {
             Message::ThemeChange(theme) => { self.theme = theme; },
             Message::ScanDevices => { self.device_list.push("new device".to_string()); },
             Message::SelectDevice(device) => { self.selected_device = Some(device); self.screen = Screen::LoadingScreen; },
-            Message::ResetApplication => { self.screen = Screen::InitScreen; }
+            Message::ErrorConnecting => { self.screen = Screen::ErrorScreen; }
+            Message::ResetApplication => {
+                self.device_list.clear();
+                self.device_list.resize(0, "".to_string());
+                self.selected_device = None;
+                self.screen = Screen::InitScreen;
+            }
             _ => { }
         }
     }
@@ -46,6 +54,7 @@ impl State {
             Screen::InitScreen => self.init_screen(),
             Screen::LoadingScreen => self.loading_screen(),
             Screen::ControlScreen => self.control_screen(),
+            Screen::ErrorScreen => self.error_screen(),
         };
 
         let content = column![
@@ -82,12 +91,23 @@ impl State {
             .push("Connecting to device: ")
             .push(text(device.unwrap_or("".to_string())))
             .push(vertical_space())
+            .push(button("die").on_press(Message::ErrorConnecting)) /* TODO: need to get this message from a failed BLE connection */
             .push(Self::footer(self))
             .push(Self::madeby("github.com/gluonsandquarks"))
     }
 
     fn control_screen(&self) -> Column<Message> {
         Self::container("Jirachi - PID Controller")
+            .push(vertical_space())
+            .push(row![button("Reset").on_press(Message::ResetApplication)].push(Self::footer(self)))
+            .push(Self::madeby("github.com/gluonsandquarks"))
+    }
+
+    fn error_screen(&self) -> Column<Message> {
+        let selected_device = self.selected_device.clone();
+        Self::container("Something went wrong...")
+            .push("Something went wrong when we were trying to connect to your selected device ")
+            .push(text(selected_device.unwrap()))
             .push(vertical_space())
             .push(row![button("Reset").on_press(Message::ResetApplication)].push(Self::footer(self)))
             .push(Self::madeby("github.com/gluonsandquarks"))
