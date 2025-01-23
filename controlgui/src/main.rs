@@ -10,6 +10,7 @@ pub fn main() -> iced::Result {
 
 enum Screen {
     InitScreen,
+    LoadingScreen,
     ControlScreen,
 }
 
@@ -17,7 +18,8 @@ struct State {
     title: String,
     screen: Screen,
     theme: Theme,
-    device_list: String,
+    device_list: Vec<String>,
+    selected_device: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,7 +34,8 @@ impl State {
     fn update(&mut self, message: Message) {
         match message {
             Message::ThemeChange(theme) => { self.theme = theme; },
-            Message::ScanDevices => { self.screen = Screen::ControlScreen; },
+            Message::ScanDevices => { self.device_list.push("new device".to_string()); },
+            Message::SelectDevice(device) => { self.selected_device = Some(device); self.screen = Screen::LoadingScreen; },
             Message::ResetApplication => { self.screen = Screen::InitScreen; }
             _ => { }
         }
@@ -41,13 +44,14 @@ impl State {
     fn view(&self) -> Element<Message> {
         let screen = match self.screen {
             Screen::InitScreen => self.init_screen(),
+            Screen::LoadingScreen => self.loading_screen(),
             Screen::ControlScreen => self.control_screen(),
         };
 
         let content = column![
             screen,
         ]
-        .spacing(20)
+        .spacing(50)
         .padding(20)
         .max_width(600);
 
@@ -63,9 +67,20 @@ impl State {
     }
 
     fn init_screen(&self) -> Column<Message> {
-        Self::container("Jirachi - Device Setup")
-            .push(button("Scan nearby BLE devices").on_press(Message::ScanDevices).width(Fill))
-            .push(pick_list(vec![self.device_list.clone()], Some(self.device_list.clone()), Message::SelectDevice).placeholder("Scan to show device list"))
+        let container = Self::container("Jirachi - Device Setup");
+            container.push(button("Scan nearby BLE devices").on_press(Message::ScanDevices).width(Fill))
+            .push(pick_list(self.device_list.clone(), self.selected_device.clone(),Message::SelectDevice).width(Fill).placeholder("Scan to show device list"))
+            .push(vertical_space())
+            .push(Self::footer(self))
+            .push(Self::madeby("github.com/gluonsandquarks"))
+    }
+    
+    fn loading_screen(&self) -> Column<Message> {
+        let device = self.selected_device.clone();
+        Self::container("Loading...")
+            .push(vertical_space())
+            .push("Connecting to device: ")
+            .push(text(device.unwrap_or("".to_string())))
             .push(vertical_space())
             .push(Self::footer(self))
             .push(Self::madeby("github.com/gluonsandquarks"))
@@ -106,7 +121,8 @@ impl Default for State {
             title: "Jirachi PID Controller".to_string(),
             screen: Screen::InitScreen,
             theme: Theme::Dark,
-            device_list: String::new(),
+            device_list: Vec::<String>::new(),
+            selected_device: None,
         }
     }
 }
