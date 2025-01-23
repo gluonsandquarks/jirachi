@@ -1,6 +1,9 @@
+// use iced::futures;
 use iced::widget::{ button, column, pick_list, text, center, slider, text_input, row, horizontal_space, vertical_space };
 use iced::widget::{ Column, Row };
-use iced::{ Element, Theme, Fill, Color };
+use iced::{ Element, Theme, Fill, Color, Task };
+use btleplug::api::{Central, CharPropFlags, Manager as _, Peripheral, ScanFilter};
+use btleplug::platform::{ Manager, Adapter };
 
 const MAX_K_VALUES: f32 = 5000.0;
 
@@ -17,25 +20,40 @@ enum Screen {
     ErrorScreen,
 }
 
+#[derive(Debug, Clone)]
+enum Error {
+    BrokeAssError,
+    IOError,
+    NoPeripheralsError,
+}
+
 struct State {
     title: String,
     screen: Screen,
     theme: Theme,
     device_list: Vec<String>,
     selected_device: Option<String>,
+    scan_ok: bool,
+    fetch_ok: bool,
+    up_ok: bool,
     kp: f32,
     kd: f32,
     ki: f32,
+    ble_manager: Option<Manager>,
+    adapter_list: Option<Vec<Adapter>>,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     ThemeChange(Theme),
     ScanDevices,
+    ScanFinished(Result<Option<Vec<Adapter>>, Error>),
     SelectDevice(String),
     ConnectionSuccess,
     ErrorConnecting,
     ResetApplication,
+    FetchData,
+    UploadData,
     KpSliderChanged(f32),
     KpInputBoxChanged(String),
     KdSliderChanged(f32),
@@ -45,13 +63,27 @@ enum Message {
 }
 
 impl State {
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::ThemeChange(theme) => { self.theme = theme; },
-            Message::ScanDevices => { self.device_list.push("new device".to_string()); },
-            Message::SelectDevice(device) => { self.selected_device = Some(device); self.screen = Screen::LoadingScreen; },
-            Message::ConnectionSuccess => { self.screen = Screen::ControlScreen; },
-            Message::ErrorConnecting => { self.screen = Screen::ErrorScreen; },
+            Message::ThemeChange(theme) => { self.theme = theme; Task::none() },
+            Message::ScanDevices => { Self::scan_devices_task() },
+            Message::ScanFinished(result) => {
+                match result {
+                    Ok(adapter_list) => {
+                        self.adapter_list = adapter_list;
+
+
+                        println!("{:?}", self.adapter_list.clone().unwrap())
+                    },
+                    Err(error) => {
+                        println!("{:?}", error)
+                    },
+                }
+                Task::none()
+            },
+            Message::SelectDevice(device) => { self.selected_device = Some(device); self.screen = Screen::LoadingScreen; Task::none() },
+            Message::ConnectionSuccess => { self.screen = Screen::ControlScreen; Task::none() },
+            Message::ErrorConnecting => { self.screen = Screen::ErrorScreen; Task::none() },
             Message::ResetApplication => {
                 self.device_list.clear();
                 self.device_list.resize(0, "".to_string());
@@ -60,29 +92,33 @@ impl State {
                 self.kp = 0.0;
                 self.kd = 0.0;
                 self.ki = 0.0;
+                Task::none()
             },
-            Message::KpSliderChanged(new_kp) => { self.kp = new_kp; }
+            Message::KpSliderChanged(new_kp) => { self.kp = new_kp; Task::none() }
             Message::KpInputBoxChanged(new_kp) => {
                 let mut kp_float = new_kp.parse().unwrap_or(0.0);
                 if kp_float > MAX_K_VALUES { kp_float = MAX_K_VALUES; }
                 if kp_float < 0.0 { kp_float = 0.0; }
                 self.kp = kp_float;
+                Task::none()
             }
-            Message::KdSliderChanged(new_kd) => { self.kd = new_kd; }
+            Message::KdSliderChanged(new_kd) => { self.kd = new_kd; Task::none() }
             Message::KdInputBoxChanged(new_kd) => {
                 let mut kd_float = new_kd.parse().unwrap_or(0.0);
                 if kd_float > MAX_K_VALUES { kd_float = MAX_K_VALUES; }
                 if kd_float < 0.0 { kd_float = 0.0; }
                 self.kd = kd_float;
+                Task::none()
             }
-            Message::KiSliderChanged(new_ki) => { self.ki = new_ki; }
+            Message::KiSliderChanged(new_ki) => { self.ki = new_ki; Task::none() }
             Message::KiInputBoxChanged(new_ki) => {
                 let mut ki_float = new_ki.parse().unwrap_or(0.0);
                 if ki_float > MAX_K_VALUES { ki_float = MAX_K_VALUES; }
                 if ki_float < 0.0 { ki_float = 0.0; }
                 self.ki = ki_float;
+                Task::none()
             }
-            _ => {}
+            _ => { Task::none() }
         }
     }
 
@@ -113,8 +149,14 @@ impl State {
     }
 
     fn init_screen(&self) -> Column<Message> {
-        let container = Self::container("Jirachi - Device Setup");
-            container.push(button("Scan nearby BLE devices").on_press(Message::ScanDevices).width(Fill))
+        let scan_btn = if self.scan_ok {
+            button("Scan nearby BLE devices").on_press(Message::ScanDevices).width(Fill)
+        } else {
+            button("Scan nearby BLE devices").width(Fill)
+        };
+        Self::container("Jirachi - Device Setup")
+            .push(vertical_space())
+            .push(scan_btn)
             .push(pick_list(self.device_list.clone(), self.selected_device.clone(),Message::SelectDevice).width(Fill).placeholder("Scan to show device list"))
             .push(vertical_space())
             .push(Self::footer(self))
@@ -125,8 +167,7 @@ impl State {
         let device = self.selected_device.clone();
         Self::container("Loading...")
             .push(vertical_space())
-            .push("Connecting to device: ")
-            .push(text(device.unwrap_or("".to_string())))
+            .push(row![text("Connecting to device: ").size(20), text(device.unwrap_or("".to_string())).size(20)])
             .push(vertical_space())
             .push(row![button("Die").on_press(Message::ErrorConnecting), horizontal_space(), button("Go!").on_press(Message::ConnectionSuccess)]) /* TODO: need to get this message from a failed BLE connection */
             .push(Self::footer(self))
@@ -137,24 +178,36 @@ impl State {
         let kp_str = self.kp.to_string();
         let kd_str = self.kd.to_string();
         let ki_str = self.ki.to_string();
+        let fetch_btn = if self.fetch_ok {
+            button("Fetch values from device").on_press(Message::FetchData).style(button::primary).width(Fill)
+        } else {
+            button("Fetch values from device").style(button::primary).width(Fill)
+        };
+        let up_btn = if self.up_ok {
+            button("Upload values to device").on_press(Message::UploadData).style(button::success).width(Fill)
+        } else {
+            button("Upload values from device").style(button::success).width(Fill)
+        };
         Self::container("Jirachi - PID Controller")
+            .push(vertical_space())
             .push(row![text("Kp = ").size(20), text_input("Input value for Kp", &kp_str).on_input(Message::KpInputBoxChanged).size(20)])
             .push(slider(0.0..=MAX_K_VALUES, self.kp, Message::KpSliderChanged))
             .push(row![text("Kd = ").size(20), text_input("Input value for Kd", &kd_str).on_input(Message::KdInputBoxChanged).size(20)])
             .push(slider(0.0..=MAX_K_VALUES, self.kd, Message::KdSliderChanged))
             .push(row![text("Ki = ").size(20), text_input("Input value for Ki", &ki_str).on_input(Message::KiInputBoxChanged).size(20)])
             .push(slider(0.0..=MAX_K_VALUES, self.ki, Message::KiSliderChanged))
-            .push(button("Fetch values from device").width(Fill))
-            .push(button("Upload values to device").width(Fill))
+            .push(fetch_btn)
+            .push(up_btn)
             .push(vertical_space())
-            .push(row![button("Reset").on_press(Message::ResetApplication)].push(Self::footer(self)))
+            .push(row![button("Disconnect").on_press(Message::ResetApplication)].push(Self::footer(self)))
             .push(Self::madeby("github.com/gluonsandquarks"))
     }
 
     fn error_screen(&self) -> Column<Message> {
         let selected_device = self.selected_device.clone();
         Self::container("Something went wrong...")
-            .push("Something went wrong when we were trying to connect to your selected device ")
+            .push(vertical_space())
+            .push("Something went wrong when we were trying to connect to your selected device: ")
             .push(text(selected_device.unwrap()))
             .push(vertical_space())
             .push(row![button("Reset").on_press(Message::ResetApplication)].push(Self::footer(self)))
@@ -180,6 +233,50 @@ impl State {
         ]
     }
 
+    async fn scan_devices() -> Result<Option<Vec<Adapter>>, Error> {
+        let manager = Manager::new().await.map_err(|_| Error::IOError)?;
+        let adapter_list = manager.adapters().await.map_err(|_| Error::IOError)?;
+        if adapter_list.is_empty() {
+            eprintln!("buy a BLE adapter bro");
+            return Err(Error::BrokeAssError);
+        }
+        for adapter in adapter_list.iter() {
+            println!("Starting scan...");
+            let _ = adapter.start_scan(ScanFilter::default()).await.map_err(|_| Error::IOError);
+
+            /*
+             * btleplug example for scanning literally used a sleep to wait until the BLE peripheral returned a successful scan,
+             * since i'm not in the tokio runtime context and the futures implementation of iced doesn't have a sleep mechanism 
+             * (as far as i know but im lazy cause i didnt want to spend too much looking for a more "legit" solution :p)
+             * i just did what they did back in the day lmfao
+             * there's probably a more civilized way to do this through the btleplug api but idc i'll just do a fucky wucky >w<
+             */
+            // time::sleep(Duration::from_secs(2)).await;
+            // ^~~~ registered offender
+            for _ in 0..99999999u64 {
+                /* lmfaoooooo, this probably gets optimized out by the compiler?? TODO: check if this is true */
+            }
+
+            let peripherals = adapter.peripherals().await.map_err(|_| Error::IOError)?;
+
+            if peripherals.is_empty() {
+                eprintln!(">>> BLE peripheral devices were not found, exiting...");
+                return Err(Error::NoPeripheralsError);
+            } else {
+                for peripheral in peripherals.iter() {
+                    let properties = peripheral.properties().await.map_err(|_| Error::IOError)?;
+                    let _ = peripheral.is_connected().await.map_err(|_| Error::IOError)?;
+                    let _ = properties.unwrap().local_name.unwrap_or(String::from("{ Peripheral name unknown }"));
+                }
+            }
+        }
+        return Ok(Some(adapter_list));
+    }
+
+    fn scan_devices_task() -> Task<Message> {
+        Task::perform(Self::scan_devices(), Message::ScanFinished)
+    }
+
 }
 
 /* implement default state to initialize state struct */
@@ -191,9 +288,14 @@ impl Default for State {
             theme: Theme::Dark,
             device_list: Vec::<String>::new(),
             selected_device: None,
+            scan_ok: true,
+            fetch_ok: false,
+            up_ok: false,
             kp: 0.0,
             kd: 0.0,
             ki: 0.0,
+            ble_manager: None,
+            adapter_list: None,
         }
     }
 }
