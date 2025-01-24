@@ -1,8 +1,7 @@
-// use iced::futures;
 use iced::widget::{ button, column, pick_list, text, center, slider, text_input, row, horizontal_space, vertical_space };
 use iced::widget::{ Column, Row };
 use iced::{ Element, Theme, Fill, Color, Task };
-use btleplug::api::{Central, CharPropFlags, Manager as _, Peripheral, ScanFilter};
+use btleplug::api::{ Central, CharPropFlags, Manager as _, Peripheral, ScanFilter };
 use btleplug::platform::{ Manager, Adapter };
 
 const MAX_K_VALUES: f32 = 5000.0;
@@ -39,18 +38,19 @@ struct State {
     kp: f32,
     kd: f32,
     ki: f32,
-    ble_manager: Option<Manager>,
+    ble_manager: Option<Manager>, /* maybe not needed?? idk man */
     adapter_list: Option<Vec<Adapter>>,
+    ble_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     ThemeChange(Theme),
     ScanDevices,
-    ScanFinished(Result<Option<Vec<Adapter>>, Error>),
+    ScanFinished(Result<(Option<Vec<Adapter>>, Vec<String>), Error>),
     SelectDevice(String),
-    ConnectionSuccess,
-    ErrorConnecting,
+    ConnectToDevice,
+    ConnectionResult(Result<(Vec<Adapter>), Error>),
     ResetApplication,
     FetchData,
     UploadData,
@@ -63,27 +63,40 @@ enum Message {
 }
 
 impl State {
+    /* just handle events hehe */
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ThemeChange(theme) => { self.theme = theme; Task::none() },
-            Message::ScanDevices => { Self::scan_devices_task() },
+            Message::ScanDevices => { self.scan_ok = false; Self::scan_devices_task() },
             Message::ScanFinished(result) => {
+                self.scan_ok = true;
                 match result {
-                    Ok(adapter_list) => {
+                    Ok((adapter_list, device_list)) => {
                         self.adapter_list = adapter_list;
-
-
-                        println!("{:?}", self.adapter_list.clone().unwrap())
+                        self.device_list = device_list;
+                        self.ble_error = None;
+                        // println!("{:?}", self.adapter_list.clone().unwrap()) /* debug shit */
                     },
                     Err(error) => {
-                        println!("{:?}", error)
+                        let mut error_msg = String::from("Oopsie we made a fucky wucky OwO!!! here's your error now fix it urself!!!! >w<: ");
+                        match error {
+                            Error::BrokeAssError => { error_msg.push_str(&format!("[{:?}]", error)); },
+                            Error::IOError => { error_msg.push_str(&format!("[{:?}]", error)); },
+                            Error::NoPeripheralsError => { error_msg.clear(); error_msg.push_str("No peripherals were found! Try again :P"); },
+                        }
+                        self.ble_error = Some(error_msg);
                     },
                 }
                 Task::none()
             },
-            Message::SelectDevice(device) => { self.selected_device = Some(device); self.screen = Screen::LoadingScreen; Task::none() },
-            Message::ConnectionSuccess => { self.screen = Screen::ControlScreen; Task::none() },
-            Message::ErrorConnecting => { self.screen = Screen::ErrorScreen; Task::none() },
+            Message::SelectDevice(device) => { self.selected_device = Some(device); Task::none() },
+            Message::ConnectToDevice => {
+                self.screen = Screen::LoadingScreen;
+                Self::connect_device_task(self.adapter_list.as_ref().unwrap())
+            },
+            Message::ConnectionResult(result) => { println!("hello from connection result!!!"); println!("{:?}", result.ok()); Task::none() },
+            // Message::ConnectionSuccess => { self.screen = Screen::ControlScreen; Task::none() },
+            // Message::ErrorConnecting => { self.screen = Screen::ErrorScreen; Task::none() },
             Message::ResetApplication => {
                 self.device_list.clear();
                 self.device_list.resize(0, "".to_string());
@@ -92,6 +105,7 @@ impl State {
                 self.kp = 0.0;
                 self.kd = 0.0;
                 self.ki = 0.0;
+                self.ble_error = None;
                 Task::none()
             },
             Message::KpSliderChanged(new_kp) => { self.kp = new_kp; Task::none() }
@@ -154,11 +168,27 @@ impl State {
         } else {
             button("Scan nearby BLE devices").width(Fill)
         };
+
+        let connect_btn = if self.selected_device != None {
+            button("Connect!").on_press(Message::ConnectToDevice)
+        } else {
+            button("Connect!")
+        };
+
+        let mut error_msg = String::new();
+        if let Some(ble_error) = self.ble_error.clone() {
+            error_msg.push_str(&ble_error);
+        } else {
+            error_msg.push_str("");
+        }
+
         Self::container("Jirachi - Device Setup")
             .push(vertical_space())
             .push(scan_btn)
-            .push(pick_list(self.device_list.clone(), self.selected_device.clone(),Message::SelectDevice).width(Fill).placeholder("Scan to show device list"))
+            .push(pick_list(self.device_list.clone(), self.selected_device.clone(), Message::SelectDevice).width(Fill).placeholder("Scan to show device list"))
+            .push(text(error_msg).size(20))
             .push(vertical_space())
+            .push(row![horizontal_space(), connect_btn])
             .push(Self::footer(self))
             .push(Self::madeby("github.com/gluonsandquarks"))
     }
@@ -169,7 +199,7 @@ impl State {
             .push(vertical_space())
             .push(row![text("Connecting to device: ").size(20), text(device.unwrap_or("".to_string())).size(20)])
             .push(vertical_space())
-            .push(row![button("Die").on_press(Message::ErrorConnecting), horizontal_space(), button("Go!").on_press(Message::ConnectionSuccess)]) /* TODO: need to get this message from a failed BLE connection */
+            // .push(row![button("Die").on_press(Message::ErrorConnecting), horizontal_space(), button("Go!").on_press(Message::ConnectionSuccess)]) /* TODO: need to get this message from a failed BLE connection */
             .push(Self::footer(self))
             .push(Self::madeby("github.com/gluonsandquarks"))
     }
@@ -233,15 +263,14 @@ impl State {
         ]
     }
 
-    async fn scan_devices() -> Result<Option<Vec<Adapter>>, Error> {
+    async fn scan_devices() -> Result<(Option<Vec<Adapter>>, Vec<String>), Error> {
+        let mut device_list = Vec::<String>::new();
         let manager = Manager::new().await.map_err(|_| Error::IOError)?;
         let adapter_list = manager.adapters().await.map_err(|_| Error::IOError)?;
         if adapter_list.is_empty() {
-            eprintln!("buy a BLE adapter bro");
             return Err(Error::BrokeAssError);
         }
         for adapter in adapter_list.iter() {
-            println!("Starting scan...");
             let _ = adapter.start_scan(ScanFilter::default()).await.map_err(|_| Error::IOError);
 
             /*
@@ -260,21 +289,30 @@ impl State {
             let peripherals = adapter.peripherals().await.map_err(|_| Error::IOError)?;
 
             if peripherals.is_empty() {
-                eprintln!(">>> BLE peripheral devices were not found, exiting...");
                 return Err(Error::NoPeripheralsError);
             } else {
                 for peripheral in peripherals.iter() {
                     let properties = peripheral.properties().await.map_err(|_| Error::IOError)?;
                     let _ = peripheral.is_connected().await.map_err(|_| Error::IOError)?;
-                    let _ = properties.unwrap().local_name.unwrap_or(String::from("{ Peripheral name unknown }"));
+                    device_list.push(properties.unwrap().local_name.unwrap_or(String::from("{ Peripheral name unknown }")))
                 }
             }
         }
-        return Ok(Some(adapter_list));
+        return Ok((Some(adapter_list), device_list));
     }
 
     fn scan_devices_task() -> Task<Message> {
         Task::perform(Self::scan_devices(), Message::ScanFinished)
+    }
+
+    async fn connect_device(adapter: Vec<Adapter>) -> Result<(Vec<Adapter>), Error> {
+
+        Ok((adapter))
+    }
+
+    fn connect_device_task(adapter: &Vec<Adapter>) -> Task<Message> {
+        let cloned_adapter = adapter.clone();
+        Task::perform(Self::connect_device(cloned_adapter), Message::ConnectionResult)
     }
 
 }
@@ -296,6 +334,7 @@ impl Default for State {
             ki: 0.0,
             ble_manager: None,
             adapter_list: None,
+            ble_error: None,
         }
     }
 }
