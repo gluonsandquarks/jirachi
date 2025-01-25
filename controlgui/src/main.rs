@@ -1,10 +1,20 @@
+use std::result;
+
 use iced::widget::{ button, column, pick_list, text, center, slider, text_input, row, horizontal_space, vertical_space, toggler };
 use iced::widget::{ Column, Row };
 use iced::{ Element, Theme, Fill, Color, Task };
 use btleplug::api::{ Central, CharPropFlags, Manager as _, Peripheral as _, ScanFilter };
 use btleplug::platform::{ Manager, Adapter, Peripheral };
+use uuid::Uuid; /* kinda bloated but i'm lazy rn and don't want to implement uuid from scratch :P */
 
-const MAX_K_VALUES: f32 = 5000.0;
+const MAX_K_VALUES:     f32  = 5000.0;
+const TOGGLE_CTRL_UUID: Uuid = Uuid::from_u128(0x0000c0c0_0000_1000_8000_00805f9b34fb);
+const READ_KP_UUID:     Uuid = Uuid::from_u128(0x0000aaaa_0000_1000_8000_00805f9b34fb);
+const WRIT_KP_UUID:     Uuid = Uuid::from_u128(0x0000aaa1_0000_1000_8000_00805f9b34fb);
+const READ_KD_UUID:     Uuid = Uuid::from_u128(0x0000bbbb_0000_1000_8000_00805f9b34fb);
+const WRIT_KD_UUID:     Uuid = Uuid::from_u128(0x0000bbb1_0000_1000_8000_00805f9b34fb);
+const READ_KI_UUID:     Uuid = Uuid::from_u128(0x0000cccc_0000_1000_8000_00805f9b34fb);
+const WRIT_KI_UUID:     Uuid = Uuid::from_u128(0x0000ccc1_0000_1000_8000_00805f9b34fb);
 
 pub fn main() -> iced::Result {
     iced::application(State::title, State::update, State::view)
@@ -25,6 +35,14 @@ enum Error {
     IOError,
     NoPeripheralsError,
     PeripheralNotFoundError,
+}
+
+#[derive(Debug, Clone)]
+struct Packet {
+    kp: f32,
+    kd: f32,
+    ki: f32,
+    is_ctrl_active: bool,
 }
 
 struct State {
@@ -55,7 +73,9 @@ enum Message {
     ConnectionResult(Result<Peripheral, Error>),
     ResetApplication,
     FetchData,
+    FetchDataResult(Result<Packet, Error>),
     UploadData,
+    UploadDataResult(Result<(), Error>),
     KpSliderChanged(f32),
     KpInputBoxChanged(String),
     KdSliderChanged(f32),
@@ -147,7 +167,31 @@ impl State {
                 self.ki = ki_float;
                 Task::none()
             },
-            Message::ToggleControl(control) => { self.is_ctrl_active = control; Task::none() }
+            Message::ToggleControl(control) => { self.is_ctrl_active = control; Task::none() },
+            Message::FetchData => {
+                self.fetch_ok = false;
+                self.up_ok = false;
+                Self::fetch_data_task(self.ble_peripheral.as_ref().unwrap())
+            },
+            Message::UploadData => {
+                self.fetch_ok = false;
+                self.up_ok = false;
+                Self::upload_data_task()
+            },
+            Message::FetchDataResult(result) => {
+                self.fetch_ok = true;
+                self.up_ok = true;
+                match result {
+                    Ok(packet) => {
+                        self.kp = packet.kp;
+                        self.kd = packet.kd;
+                        self.ki = packet.ki;
+                    },
+                    Err(error) => {
+                    },
+                }
+                Task::none()
+            },
             _ => { Task::none() },
         }
     }
@@ -350,11 +394,6 @@ impl State {
                         let is_connected = peripheral.is_connected().await.map_err(|_| Error::IOError)?;
                         if is_connected {
                             println!("yaaaay we made it, connected to peripheral {}", local_name);
-                            println!("Trying to discover the peripheral services...");
-
-                            for characteristic in peripheral.characteristics() {
-                                println!("Characteristic UUID: {:?}", characteristic.uuid);
-                            }
                             target_peripheral = Some(peripheral.clone());
                             break;
                         }
@@ -373,6 +412,60 @@ impl State {
         Task::perform(Self::connect_device(cloned_adapter, cloned_p_name), Message::ConnectionResult)
     }
 
+    async fn fetch_data(peripheral: Peripheral) -> Result<Packet, Error> {
+        let mut packet = Packet{ kp: 0.0, kd: 0.0, ki: 0.0, is_ctrl_active: false, };
+
+        /* get the available services from the peripheral */
+        peripheral.discover_services().await.map_err(|_| Error::IOError)?;
+
+        /* this urgently needs refactoring lmao */
+        for characteristic in peripheral.characteristics() {
+            match characteristic.uuid {
+                READ_KP_UUID => {
+                    let read_bytes = peripheral.read(&characteristic).await.map_err(|_| Error::IOError)?;
+                    let mut result_string = String::new();
+                    for byte in read_bytes {
+                        result_string.push(byte as char);
+                    }
+                    packet.kp = result_string.parse().unwrap_or(0.0);
+                },
+                READ_KD_UUID => {
+                    let read_bytes = peripheral.read(&characteristic).await.map_err(|_| Error::IOError)?;
+                    let mut result_string = String::new();
+                    for byte in read_bytes {
+                        result_string.push(byte as char);
+                    }
+                    packet.kd = result_string.parse().unwrap_or(0.0);
+                },
+                READ_KI_UUID => {
+                    let read_bytes = peripheral.read(&characteristic).await.map_err(|_| Error::IOError)?;
+                    let mut result_string = String::new();
+                    for byte in read_bytes {
+                        result_string.push(byte as char);
+                    }
+                    packet.ki = result_string.parse().unwrap_or(0.0);
+                },
+                _ => {},
+            }
+            
+        }
+
+        Ok(packet)
+    }
+
+    fn fetch_data_task(peripheral: &Peripheral) -> Task<Message> {
+        let cloned_peripheral = peripheral.clone();
+        Task::perform(Self::fetch_data(cloned_peripheral), Message::FetchDataResult)
+    }
+
+    async fn upload_data() -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn upload_data_task() -> Task<Message> {
+        Task::perform(Self::upload_data(), Message::UploadDataResult)
+    }
+
 }
 
 /* implement default state to initialize state struct */
@@ -385,8 +478,8 @@ impl Default for State {
             device_list: Vec::<String>::new(),
             selected_device: None,
             scan_ok: true,
-            fetch_ok: false,
-            up_ok: false,
+            fetch_ok: true,
+            up_ok: true,
             kp: 0.0,
             kd: 0.0,
             ki: 0.0,
