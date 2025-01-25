@@ -1,10 +1,38 @@
-use std::result;
+/*
+ * This file is part of the jirachi repository, https://github.com/gluonsandquarks/jirachi
+ * main.rs - cross-platform gui application to control the jirachi device through BLE,
+ * using the iced gui framework, the btleplug crate to manage the BLE connectivity, and
+ * custom controls to easily tune the PID controller running on the jirachi device
+ * 
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2025 gluons.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
 
 use iced::widget::{ button, column, pick_list, text, center, slider, text_input, row, horizontal_space, vertical_space, toggler };
 use iced::widget::{ Column, Row };
 use iced::{ Element, Theme, Fill, Color, Task };
-use btleplug::api::{ Central, CharPropFlags, Manager as _, Peripheral as _, ScanFilter };
+use btleplug::api::{ Central, Manager as _, Peripheral as _, ScanFilter, WriteType::WithoutResponse };
 use btleplug::platform::{ Manager, Adapter, Peripheral };
+use std::{ thread, time };
 use uuid::Uuid; /* kinda bloated but i'm lazy rn and don't want to implement uuid from scratch :P */
 
 const MAX_K_VALUES:     f32  = 5000.0;
@@ -42,7 +70,6 @@ struct Packet {
     kp: f32,
     kd: f32,
     ki: f32,
-    is_ctrl_active: bool,
 }
 
 struct State {
@@ -100,7 +127,8 @@ impl State {
                         self.ble_error = None;
                     },
                     Err(error) => {
-                        let mut error_msg = String::from("Oopsie we made a fucky wucky OwO!!! here's your error now fix it urself!!!! >w<: ");
+                        let mut error_msg = String::from("Oopsie we made a fucky wucky OwO!!!
+                                                          here's your error now fix it urself!!!! >w<: ");
                         match error {
                             Error::BrokeAssError => { error_msg.push_str(&format!("[{:?}] - bruh just buy a BLE adapter lmfao", error)); },
                             Error::IOError => { error_msg.push_str(&format!("[{:?}] - Maybe try again?", error)); },
@@ -176,7 +204,7 @@ impl State {
             Message::UploadData => {
                 self.fetch_ok = false;
                 self.up_ok = false;
-                Self::upload_data_task()
+                Self::upload_data_task(self.ble_peripheral.as_ref().unwrap(), self.kp, self.kd, self.ki, self.is_ctrl_active)
             },
             Message::FetchDataResult(result) => {
                 self.fetch_ok = true;
@@ -186,13 +214,29 @@ impl State {
                         self.kp = packet.kp;
                         self.kd = packet.kd;
                         self.ki = packet.ki;
+                        self.ble_error = None;
                     },
                     Err(error) => {
+                        let error_msg = format!("Something went wrong when trying to fetch the data\nError ID: [{:?}] - check your peripheral then maybe try again?\nOr reset the app", error);
+                        self.ble_error = Some(error_msg);
                     },
                 }
                 Task::none()
             },
-            _ => { Task::none() },
+            Message::UploadDataResult(result) => {
+                self.fetch_ok = true;
+                self.up_ok = true;
+                match result {
+                    Ok(()) => {
+                        self.ble_error = None;
+                    },
+                    Err(error) => {
+                        let error_msg = format!("Something went wrong when trying to upload the data\nError ID: [{:?}] - check your peripheral then maybe try again?\nOr reset the app", error);
+                        self.ble_error = Some(error_msg);
+                    }
+                }
+                Task::none()
+            },
         }
     }
 
@@ -264,6 +308,13 @@ impl State {
     }
 
     fn control_screen(&self) -> Column<Message> {
+        let mut error_msg = String::new();
+        if let Some(ble_error) = self.ble_error.clone() {
+            error_msg.push_str(&ble_error);
+        } else {
+            error_msg.push_str("");
+        }
+
         let kp_str = self.kp.to_string();
         let kd_str = self.kd.to_string();
         let ki_str = self.ki.to_string();
@@ -288,6 +339,7 @@ impl State {
             .push(slider(0.0..=MAX_K_VALUES, self.ki, Message::KiSliderChanged))
             .push(fetch_btn)
             .push(up_btn)
+            .push(text(error_msg))
             .push(vertical_space())
             .push(row![button("Disconnect").on_press(Message::ResetApplication)].push(Self::footer(self)))
             .push(Self::madeby("github.com/gluonsandquarks"))
@@ -332,19 +384,10 @@ impl State {
         }
         for adapter in adapter_list.iter() {
             let _ = adapter.start_scan(ScanFilter::default()).await.map_err(|_| Error::IOError);
-
-            /*
-             * btleplug example for scanning literally used a sleep to wait until the BLE peripheral returned a successful scan,
-             * since i'm not in the tokio runtime context and the futures implementation of iced doesn't have a sleep mechanism 
-             * (as far as i know but im lazy cause i didnt want to spend too much looking for a more "legit" solution :p)
-             * i just did what they did back in the day lmfao
-             * there's probably a more civilized way to do this through the btleplug api but idc i'll just do a fucky wucky >w<
-             */
-            // time::sleep(Duration::from_secs(2)).await;
-            // ^~~~ registered offender
-            for _ in 0..99999999u64 {
-                /* lmfaoooooo, this probably gets optimized out by the compiler?? TODO: check if this is true */
-            }
+            
+            /* wait for 2 secs to let peripheral return with scanned devices */
+            let two_secs = time::Duration::from_millis(2000);
+            thread::sleep(two_secs);
 
             let peripherals = adapter.peripherals().await.map_err(|_| Error::IOError)?;
 
@@ -382,7 +425,6 @@ impl State {
 
                     /* check if it's the peripheral we want */
                     if local_name.contains(peripheral_name.as_str()) {
-                        println!("Found matching peripheral {:?}...", &local_name);
                         if !is_connected {
                             /* connect if we aren't already connected */
                             if let Err(err) = peripheral.connect().await {
@@ -393,7 +435,6 @@ impl State {
                         /* check once again if we connected successfully */
                         let is_connected = peripheral.is_connected().await.map_err(|_| Error::IOError)?;
                         if is_connected {
-                            println!("yaaaay we made it, connected to peripheral {}", local_name);
                             target_peripheral = Some(peripheral.clone());
                             break;
                         }
@@ -413,7 +454,7 @@ impl State {
     }
 
     async fn fetch_data(peripheral: Peripheral) -> Result<Packet, Error> {
-        let mut packet = Packet{ kp: 0.0, kd: 0.0, ki: 0.0, is_ctrl_active: false, };
+        let mut packet = Packet{ kp: 0.0, kd: 0.0, ki: 0.0 };
 
         /* get the available services from the peripheral */
         peripheral.discover_services().await.map_err(|_| Error::IOError)?;
@@ -457,13 +498,68 @@ impl State {
         let cloned_peripheral = peripheral.clone();
         Task::perform(Self::fetch_data(cloned_peripheral), Message::FetchDataResult)
     }
+    /* this could maybe just return an optional? keeping it for possibilities..... */
+    async fn upload_data(peripheral: Peripheral, kp: f32, kd: f32, ki: f32, toggle_ctrl: bool) -> Result<(), Error> {
 
-    async fn upload_data() -> Result<(), Error> {
+
+
+        /* get the available services from the peripheral */
+        peripheral.discover_services().await.map_err(|_| Error::IOError)?;
+
+        for characteristic in peripheral.characteristics() {
+            match characteristic.uuid {
+                WRIT_KP_UUID => {
+                    let mut _data = String::new();
+                    let mut raw_bytes = Vec::<u8>::new();
+                    _data = kp.to_string();
+                    _data.push(';'); /* this is a needed delimeter to signal the packet end, used by the ble peripheral for parsing data */
+                    for c in _data.chars() {
+                        raw_bytes.push(c as u8);
+                    }
+                    peripheral.write(&characteristic, &raw_bytes, WithoutResponse).await.map_err(|_| Error::IOError)?;
+                },
+                WRIT_KD_UUID => {
+                    let mut _data = String::new();
+                    let mut raw_bytes = Vec::<u8>::new();
+                    _data = kd.to_string();
+                    _data.push(';'); /* this is a needed delimeter to signal the packet end, used by the ble peripheral for parsing data */
+                    for c in _data.chars() {
+                        raw_bytes.push(c as u8);
+                    }
+                    peripheral.write(&characteristic, &raw_bytes, WithoutResponse).await.map_err(|_| Error::IOError)?;
+                },
+                WRIT_KI_UUID => {
+                    let mut _data = String::new();
+                    let mut raw_bytes = Vec::<u8>::new();
+                    _data = ki.to_string();
+                    _data.push(';'); /* this is a needed delimeter to signal the packet end, used by the ble peripheral for parsing data */
+                    for c in _data.chars() {
+                        raw_bytes.push(c as u8);
+                    }
+                    peripheral.write(&characteristic, &raw_bytes, WithoutResponse).await.map_err(|_| Error::IOError)?;
+                },
+                TOGGLE_CTRL_UUID => {
+                    let mut _data = String::new();
+                    let mut raw_bytes = Vec::<u8>::new();
+                    if toggle_ctrl { _data.push('1'); } else { _data.push('0'); }
+                    _data.push(';'); /* this is a needed delimeter to signal the packet end, used by the ble peripheral for parsing data */
+                    for c in _data.chars() {
+                        raw_bytes.push(c as u8);
+                    }
+                    peripheral.write(&characteristic, &raw_bytes, WithoutResponse).await.map_err(|_| Error::IOError)?;
+
+                },
+                _ => {},
+            }
+            
+        }
+
         Ok(())
     }
 
-    fn upload_data_task() -> Task<Message> {
-        Task::perform(Self::upload_data(), Message::UploadDataResult)
+    fn upload_data_task(peripheral: &Peripheral, kp: f32, kd: f32, ki: f32, toggle_ctrl: bool) -> Task<Message> {
+        let cloned_peripheral = peripheral.clone();
+        Task::perform(Self::upload_data(cloned_peripheral, kp, kd, ki, toggle_ctrl), Message::UploadDataResult)
     }
 
 }
