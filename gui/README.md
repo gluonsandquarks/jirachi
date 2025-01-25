@@ -27,7 +27,9 @@ Turns out that adding a cross-platform GUI and a cross-platform BLE library real
 
 A side effect of this is that the dependency tree is now fucked lol. oh well, you win some you lose some :)
 
-```{toggle}
+<details>
+<summary>Click to expand huge tree</summary>
+```
 $ cargo tree
 gui v0.1.0 (C:\Users\Usuario\Repos\jirachi\gui)
 ├── btleplug v0.11.7
@@ -476,3 +478,4 @@ gui v0.1.0 (C:\Users\Usuario\Repos\jirachi\gui)
 │   └── thiserror v1.0.69 (*)
 └── uuid v1.12.1
 ```
+</details>
