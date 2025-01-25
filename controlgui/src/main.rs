@@ -1,8 +1,8 @@
-use iced::widget::{ button, column, pick_list, text, center, slider, text_input, row, horizontal_space, vertical_space };
+use iced::widget::{ button, column, pick_list, text, center, slider, text_input, row, horizontal_space, vertical_space, toggler };
 use iced::widget::{ Column, Row };
 use iced::{ Element, Theme, Fill, Color, Task };
-use btleplug::api::{ Central, CharPropFlags, Manager as _, Peripheral, ScanFilter };
-use btleplug::platform::{ Manager, Adapter };
+use btleplug::api::{ Central, CharPropFlags, Manager as _, Peripheral as _, ScanFilter };
+use btleplug::platform::{ Manager, Adapter, Peripheral };
 
 const MAX_K_VALUES: f32 = 5000.0;
 
@@ -24,6 +24,7 @@ enum Error {
     BrokeAssError,
     IOError,
     NoPeripheralsError,
+    PeripheralNotFoundError,
 }
 
 struct State {
@@ -38,8 +39,9 @@ struct State {
     kp: f32,
     kd: f32,
     ki: f32,
-    ble_manager: Option<Manager>, /* maybe not needed?? idk man */
+    is_ctrl_active: bool,
     adapter_list: Option<Vec<Adapter>>,
+    ble_peripheral: Option<Peripheral>,
     ble_error: Option<String>,
 }
 
@@ -50,7 +52,7 @@ enum Message {
     ScanFinished(Result<(Option<Vec<Adapter>>, Vec<String>), Error>),
     SelectDevice(String),
     ConnectToDevice,
-    ConnectionResult(Result<(Vec<Adapter>), Error>),
+    ConnectionResult(Result<Peripheral, Error>),
     ResetApplication,
     FetchData,
     UploadData,
@@ -60,6 +62,7 @@ enum Message {
     KdInputBoxChanged(String),
     KiSliderChanged(f32),
     KiInputBoxChanged(String),
+    ToggleControl(bool),
 }
 
 impl State {
@@ -75,14 +78,14 @@ impl State {
                         self.adapter_list = adapter_list;
                         self.device_list = device_list;
                         self.ble_error = None;
-                        // println!("{:?}", self.adapter_list.clone().unwrap()) /* debug shit */
                     },
                     Err(error) => {
                         let mut error_msg = String::from("Oopsie we made a fucky wucky OwO!!! here's your error now fix it urself!!!! >w<: ");
                         match error {
-                            Error::BrokeAssError => { error_msg.push_str(&format!("[{:?}]", error)); },
-                            Error::IOError => { error_msg.push_str(&format!("[{:?}]", error)); },
+                            Error::BrokeAssError => { error_msg.push_str(&format!("[{:?}] - bruh just buy a BLE adapter lmfao", error)); },
+                            Error::IOError => { error_msg.push_str(&format!("[{:?}] - Maybe try again?", error)); },
                             Error::NoPeripheralsError => { error_msg.clear(); error_msg.push_str("No peripherals were found! Try again :P"); },
+                            _ => {}
                         }
                         self.ble_error = Some(error_msg);
                     },
@@ -92,11 +95,22 @@ impl State {
             Message::SelectDevice(device) => { self.selected_device = Some(device); Task::none() },
             Message::ConnectToDevice => {
                 self.screen = Screen::LoadingScreen;
-                Self::connect_device_task(self.adapter_list.as_ref().unwrap())
+                Self::connect_device_task(self.adapter_list.as_ref().unwrap(), self.selected_device.clone().unwrap())
             },
-            Message::ConnectionResult(result) => { println!("hello from connection result!!!"); println!("{:?}", result.ok()); Task::none() },
-            // Message::ConnectionSuccess => { self.screen = Screen::ControlScreen; Task::none() },
-            // Message::ErrorConnecting => { self.screen = Screen::ErrorScreen; Task::none() },
+            Message::ConnectionResult(result) => {
+                match result {
+                    Ok(peripheral) => {
+                        self.screen = Screen::ControlScreen;
+                        self.ble_peripheral = Some(peripheral);
+                    },
+                    Err(error) => {
+                        self.screen = Screen::ErrorScreen;
+                        let error_msg = format!("Error ID: [{:?}] - maybe try again?", error);
+                        self.ble_error = Some(error_msg);
+                    },
+                }
+                Task::none()
+            },
             Message::ResetApplication => {
                 self.device_list.clear();
                 self.device_list.resize(0, "".to_string());
@@ -105,34 +119,36 @@ impl State {
                 self.kp = 0.0;
                 self.kd = 0.0;
                 self.ki = 0.0;
+                self.ble_peripheral = None;
                 self.ble_error = None;
                 Task::none()
             },
-            Message::KpSliderChanged(new_kp) => { self.kp = new_kp; Task::none() }
+            Message::KpSliderChanged(new_kp) => { self.kp = new_kp; Task::none() },
             Message::KpInputBoxChanged(new_kp) => {
                 let mut kp_float = new_kp.parse().unwrap_or(0.0);
                 if kp_float > MAX_K_VALUES { kp_float = MAX_K_VALUES; }
                 if kp_float < 0.0 { kp_float = 0.0; }
                 self.kp = kp_float;
                 Task::none()
-            }
-            Message::KdSliderChanged(new_kd) => { self.kd = new_kd; Task::none() }
+            },
+            Message::KdSliderChanged(new_kd) => { self.kd = new_kd; Task::none() },
             Message::KdInputBoxChanged(new_kd) => {
                 let mut kd_float = new_kd.parse().unwrap_or(0.0);
                 if kd_float > MAX_K_VALUES { kd_float = MAX_K_VALUES; }
                 if kd_float < 0.0 { kd_float = 0.0; }
                 self.kd = kd_float;
                 Task::none()
-            }
-            Message::KiSliderChanged(new_ki) => { self.ki = new_ki; Task::none() }
+            },
+            Message::KiSliderChanged(new_ki) => { self.ki = new_ki; Task::none() },
             Message::KiInputBoxChanged(new_ki) => {
                 let mut ki_float = new_ki.parse().unwrap_or(0.0);
                 if ki_float > MAX_K_VALUES { ki_float = MAX_K_VALUES; }
                 if ki_float < 0.0 { ki_float = 0.0; }
                 self.ki = ki_float;
                 Task::none()
-            }
-            _ => { Task::none() }
+            },
+            Message::ToggleControl(control) => { self.is_ctrl_active = control; Task::none() }
+            _ => { Task::none() },
         }
     }
 
@@ -199,7 +215,6 @@ impl State {
             .push(vertical_space())
             .push(row![text("Connecting to device: ").size(20), text(device.unwrap_or("".to_string())).size(20)])
             .push(vertical_space())
-            // .push(row![button("Die").on_press(Message::ErrorConnecting), horizontal_space(), button("Go!").on_press(Message::ConnectionSuccess)]) /* TODO: need to get this message from a failed BLE connection */
             .push(Self::footer(self))
             .push(Self::madeby("github.com/gluonsandquarks"))
     }
@@ -220,6 +235,7 @@ impl State {
         };
         Self::container("Jirachi - PID Controller")
             .push(vertical_space())
+            .push(toggler(self.is_ctrl_active).label("Control Enable").on_toggle(Message::ToggleControl))
             .push(row![text("Kp = ").size(20), text_input("Input value for Kp", &kp_str).on_input(Message::KpInputBoxChanged).size(20)])
             .push(slider(0.0..=MAX_K_VALUES, self.kp, Message::KpSliderChanged))
             .push(row![text("Kd = ").size(20), text_input("Input value for Kd", &kd_str).on_input(Message::KdInputBoxChanged).size(20)])
@@ -237,8 +253,8 @@ impl State {
         let selected_device = self.selected_device.clone();
         Self::container("Something went wrong...")
             .push(vertical_space())
-            .push("Something went wrong when we were trying to connect to your selected device: ")
-            .push(text(selected_device.unwrap()))
+            .push(column![text("Something went wrong when we were trying to connect to your selected device: "), text(selected_device.unwrap())])
+            .push(text(self.ble_error.as_ref().unwrap()))
             .push(vertical_space())
             .push(row![button("Reset").on_press(Message::ResetApplication)].push(Self::footer(self)))
             .push(Self::madeby("github.com/gluonsandquarks"))
@@ -305,14 +321,56 @@ impl State {
         Task::perform(Self::scan_devices(), Message::ScanFinished)
     }
 
-    async fn connect_device(adapter: Vec<Adapter>) -> Result<(Vec<Adapter>), Error> {
+    async fn connect_device(adapter: Vec<Adapter>, peripheral_name: String) -> Result<Peripheral, Error> {
 
-        Ok((adapter))
+        let mut target_peripheral: Option<Peripheral> = None;
+
+        for adapter in adapter.iter() {
+            let peripherals = adapter.peripherals().await.map_err(|_| Error::IOError)?;
+            if peripherals.is_empty() { return Err(Error::NoPeripheralsError); }
+            else {
+                for peripheral in peripherals.iter() {
+                    let properties = peripheral.properties().await.map_err(|_| Error::IOError)?;
+                    let is_connected = peripheral.is_connected().await.map_err(|_| Error::IOError)?;
+                    /* unless we get extremely unlucky and someone actually advertises their device like "ignore this shit :PP", */
+                    /* this will ignore any unknown device, otherwise it will try to connect to it XDDD */
+                    let local_name = properties.unwrap().local_name.unwrap_or(String::from("ignore this shit :PP"));
+
+                    /* check if it's the peripheral we want */
+                    if local_name.contains(peripheral_name.as_str()) {
+                        println!("Found matching peripheral {:?}...", &local_name);
+                        if !is_connected {
+                            /* connect if we aren't already connected */
+                            if let Err(err) = peripheral.connect().await {
+                                eprintln!("Error connecting to the peripheral!!! fukkk this is the reason: {}", err);
+                                return Err(Error::IOError);
+                            }
+                        }
+                        /* check once again if we connected successfully */
+                        let is_connected = peripheral.is_connected().await.map_err(|_| Error::IOError)?;
+                        if is_connected {
+                            println!("yaaaay we made it, connected to peripheral {}", local_name);
+                            println!("Trying to discover the peripheral services...");
+
+                            for characteristic in peripheral.characteristics() {
+                                println!("Characteristic UUID: {:?}", characteristic.uuid);
+                            }
+                            target_peripheral = Some(peripheral.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+            if !target_peripheral.is_none() { return Ok(target_peripheral.unwrap()); } /* don't keep searching in the adapters if we already have the target peripheral */
+        }
+
+        Err(Error::PeripheralNotFoundError)
     }
 
-    fn connect_device_task(adapter: &Vec<Adapter>) -> Task<Message> {
-        let cloned_adapter = adapter.clone();
-        Task::perform(Self::connect_device(cloned_adapter), Message::ConnectionResult)
+    fn connect_device_task(adapter: &Vec<Adapter>, peripheral_name: String) -> Task<Message> {
+        let cloned_adapter = adapter.clone();        /* clone before borrowing cause rust :P */
+        let cloned_p_name = peripheral_name.clone(); /* see above!!!! */
+        Task::perform(Self::connect_device(cloned_adapter, cloned_p_name), Message::ConnectionResult)
     }
 
 }
@@ -332,8 +390,9 @@ impl Default for State {
             kp: 0.0,
             kd: 0.0,
             ki: 0.0,
-            ble_manager: None,
+            is_ctrl_active: false,
             adapter_list: None,
+            ble_peripheral: None,
             ble_error: None,
         }
     }
