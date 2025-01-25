@@ -29,6 +29,7 @@ A side effect of this is that the dependency tree is now fucked lol. oh well, yo
 
 <details>
 <summary>Click to expand huge tree</summary>
+
 ```
 $ cargo tree
 gui v0.1.0 (C:\Users\Usuario\Repos\jirachi\gui)
@@ -478,4 +479,5 @@ gui v0.1.0 (C:\Users\Usuario\Repos\jirachi\gui)
 │   └── thiserror v1.0.69 (*)
 └── uuid v1.12.1
 ```
+
 </details>
