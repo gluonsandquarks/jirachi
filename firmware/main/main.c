@@ -46,7 +46,9 @@
 #define COLOR_SEQUENCE_SIZE      3U
 #define PI                       (3.14159265358979F)
 #define GYRO_MEASURE_ERROR       (PI * (40.0F / 180.0F))    /* this really should be measured, but estimated to 40deg/s -> omega_b on the original white paper */
-                                                            /* technically this should be done by getting the mean bias of the gyro on every axis */
+                                                            /* technically this should be done by getting the mean bias of the gyro on every axis              */
+                                                            /* ^ EDIT: since the original whitepaper has gotten more difficult to find, you can find a copy of */
+                                                            /*         it inside the docs/ folder                                                              */
 #define BETA(x)                  (sqrtf(3.0F / 4.0F) * (x)) /* compute beta for madgwick filter >w<!! */
 
 #define DESIRED_ANGLE            (-60.0F)
