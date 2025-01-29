@@ -25,6 +25,16 @@ The PCB is a 4-layer board in the shape of a Reuleaux triangle. This special sha
 
 The gerber files are available inside the `Project Outputs for Lucido` directory. You can just drop the `LUCIDO_GERBER.zip` file into your favorite PCB manufacturer website. The `LUCIDO_BOM.csv` and `LUCIDO_CPL.csv` are the BOM and component placement files respectively, but they are tailored to work with JLCPCB's assembly service specifically.
 
+## Detailed BOM
+
+<details>
+
+<summary>Click to expand the bill of materials</summary>
+
+![Bill of Materials](Project Outputs For Lucido/LUCIDO_BOM.csv)
+
+</details>
+
 ## Pretty Pictures
 
 ![PCB top and bottom layers](assets/pcb-layers.png)
