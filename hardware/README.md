@@ -28,6 +28,8 @@ The gerber files are available inside the `Project Outputs for Lucido` directory
 ## Pretty Pictures
 
 ![PCB top and bottom layers](assets/pcb-layers.png)
+![Close up bottom](assets/closeup-bot.jpg)
+![Close up top](assets/closeup-top.jpg)
 ![3D Front](assets/3dview-front.png)
 ![3D Back](assets/3dview-back.png)
 
