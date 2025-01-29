@@ -31,7 +31,7 @@ The gerber files are available inside the `Project Outputs for Lucido` directory
 
 <summary>Click to expand the bill of materials</summary>
 
-![Bill of Materials](Project Outputs For Lucido/LUCIDO_BOM.csv)
+![Bill of Materials](Project\ Outputs\ For\ Lucido/LUCIDO_BOM.csv)
 
 </details>
 
