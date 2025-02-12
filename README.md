@@ -27,7 +27,7 @@ If, by some weird reason, you want to build this device from scratch, then let m
 - 1 x Assembled PCB: you can just order it from JLCPCB at a pretty cheap price (~20 usd per board), everything is already done for you over at the hardware directory!!
 - 1 x DC motor: I used [this one](https://www.amazon.com/dp/B07JYM8H18)
 - 1 x Motor coupler: I used [this one](https://www.amazon.com/dp/B0BZS347G5)
-- 1 x 3D prints of the models under the `mechanical/outputs/` folder
+- 1 x 3D prints of the models under the [`mechanical/outputs/`](mechanical/outputs/) folder
 - 3 x M4x50mm screws
 - 6 x M4 nuts
 - 2 x M3x10mm screws
