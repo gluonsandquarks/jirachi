@@ -4,6 +4,8 @@ Jirachi is an embedded device in the shape of a Reuleaux triangle which is able 
 
 > [!NOTE]
 > This project is still active and being worked on, the firmware for the device and the software for the control GUI is mostly done, the hardware is completely done (no plan for future revisions), and the mechanical side of the project is currently the main focus, as well as documentation.
+>
+> UPDATE: The mechanical design is mostly done, just need to perform more tests and tune the PID controller again for this new design, after everything's done I'll update the documentation with a nice gif and pictures :)
 
 ![Jirachi Device](mechanical/assets/og-irl2.jpg)
 
