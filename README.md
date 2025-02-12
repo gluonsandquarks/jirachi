@@ -29,7 +29,9 @@ If, by some weird reason, you want to build this device from scratch, then let m
 - 1 x Motor coupler: I used [this one](https://www.amazon.com/dp/B0BZS347G5)
 - 1 x 3D prints of the models under the `mechanical/outputs/` folder
 - 3 x M4x50mm screws
+- 6 x M4 nuts
 - 2 x M3x10mm screws
+- 2 x M3 nuts
 - 1 x Li-Ion/LiPo Battery (can be any kind as long as voltage is between 5 and 3.6V, an it can deliver ~1.5A). I used a 18650 cell with a capacity of 2600 mAh
 - 2 x zip ties ~2 or 3 mm in width
 - 1 x sick soldering and assembly skillz
